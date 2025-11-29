@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JLPT 智能特訓 (旗艦版)</title>
+    <!-- 引入 Chart.js 圖表庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --sidebar-bg: #2c3e50; --sidebar-text: #ecf0f1;
+            --main-bg: #f4f7f6; --primary: #3498db;
+            --error: #e74c3c; --success: #27ae60;
+            --text: #2c3e50; --header-height: 60px;
+        }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft JhengHei", sans-serif; display: flex; height: 100vh; background: var(--main-bg); color: var(--text); overflow: hidden; }
+        
+        /* Layout */
+        .layout { display: flex; width: 100%; height: 100%; position: relative; }
+        .overlay-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 90; display: none; }
+
+        /* Sidebar */
+        .sidebar {
+            width: 240px; background: var(--sidebar-bg); color: var(--sidebar-text);
+            display: flex; flex-direction: column; padding: 20px 0; flex-shrink: 0;
+            z-index: 100; transition: transform 0.3s ease;
+        }
+        .sidebar-header { text-align: center; margin-bottom: 20px; font-size: 1.2rem; border-bottom: 1px solid #34495e; padding-bottom: 15px; font-weight: bold; }
+        .nav-item { padding: 15px 25px; cursor: pointer; transition: 0.2s; border-left: 4px solid transparent; }
+        .nav-item.active { background: #34495e; border-left-color: var(--primary); background: #ecf0f1; color: var(--text); font-weight: bold; }
+        .api-area { margin-top: auto; padding: 20px; font-size: 0.85rem; }
+        .api-input { width: 100%; padding: 10px; border-radius: 6px; border: none; margin-top: 8px; }
+
+        /* Main Content */
+        .main-content { flex: 1; display: flex; flex-direction: column; width: 100%; position: relative; }
+        
+        .top-bar {
+            background: #fff; height: var(--header-height); padding: 0 15px;
+            border-bottom: 1px solid #ddd; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+        }
+        .menu-btn { display: none; font-size: 24px; cursor: pointer; background: none; border: none; padding: 5px; }
+
+        .category-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+        .category-tabs button {
+            background: #f8f9fa; border: 1px solid #ddd; padding: 6px 14px;
+            cursor: pointer; border-radius: 20px; font-size: 0.9rem; white-space: nowrap; transition: 0.2s;
+        }
+        .category-tabs button.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .category-tabs button.mistake-mode.active { background: var(--error); border-color: var(--error); }
+        .category-tabs button.stats-mode.active { background: #8e44ad; border-color: #8e44ad; color: white; }
+
+        /* Chart Section */
+        .chart-container { padding: 20px; display: none; overflow-y: auto; }
+        .chart-card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        
+        /* List & Cards */
+        .drill-list-container { flex: 1; overflow-y: auto; padding: 15px; -webkit-overflow-scrolling: touch; }
+        .drill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; }
+        
+        .drill-card {
+            background: white; border-radius: 12px; padding: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05); cursor: pointer;
+            border: 1px solid transparent; position: relative; overflow: hidden;
+            display: flex; flex-direction: column; justify-content: space-between; height: 110px;
+        }
+        .drill-card h3 { margin: 0 0 5px 0; font-size: 1rem; color: #333; }
+        .progress-bar-bg { width: 100%; height: 6px; background: #eee; border-radius: 3px; margin-top: auto; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: var(--success); width: 0%; transition: width 0.3s; }
+        .status-text { font-size: 0.75rem; color: #888; margin-top: 5px; display: flex; justify-content: space-between; }
+
+        /* Mistake & Quiz Styles */
+        .mistake-container { max-width: 800px; margin: 0 auto; display: none; }
+        .mistake-card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-left: 5px solid var(--error); }
+        
+        /* RWD */
+        @media (max-width: 768px) {
+            .sidebar { position: fixed; height: 100%; left: -250px; top: 0; box-shadow: 2px 0 10px rgba(0,0,0,0.2); }
+            .sidebar.open { transform: translateX(250px); }
+            .overlay-backdrop.open { display: block; }
+            .menu-btn { display: block; margin-right: 10px; }
+            .drill-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+        }
+
+        /* Quiz Overlay */
+        .quiz-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; z-index: 200; display: none; flex-direction: column; }
+        .quiz-overlay.active { display: flex; animation: slideUp 0.3s ease-out; }
+        .quiz-header { padding: 0 15px; height: 55px; border-bottom: 1px solid #eee; display: flex; align-items: center; justify-content: space-between; background: #fff; }
+        .quiz-body { flex: 1; overflow-y: auto; padding: 20px 15px; background: #fafafa; }
+        
+        .q-box { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 25px; }
+        .opt-btn { width: 100%; text-align: left; padding: 14px 15px; margin-bottom: 10px; border: 2px solid #edf2f7; background: #fff; border-radius: 10px; font-size: 1rem; color: #444; }
+        .opt-btn.correct { background: #d1e7dd; border-color: #198754; color: #0f5132; pointer-events: none; }
+        .opt-btn.wrong { background: #f8d7da; border-color: #dc3545; color: #842029; pointer-events: none; }
+        .explanation { margin-top: 15px; padding: 15px; background: #e8f4fd; border-radius: 8px; font-size: 0.95rem; line-height: 1.5; color: #0c5460; display: none; }
+
+        /* Loading */
+        .loading-screen { position: absolute; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.95); display:none; justify-content:center; align-items:center; z-index: 300; flex-direction: column; }
+        .spinner { width: 35px; height: 35px; border: 3px solid #eee; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+<div class="layout">
+    <div class="overlay-backdrop" onclick="toggleSidebar()"></div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">🇯🇵 JLPT 智能特訓</div>
+        <div class="nav-item" onclick="changeLevel('N5', this)">N5 基礎級</div>
+        <div class="nav-item" onclick="changeLevel('N4', this)">N4 初級</div>
+        <div class="nav-item" onclick="changeLevel('N3', this)">N3 中級</div>
+        <div class="nav-item active" onclick="changeLevel('N2', this)">N2 中高級</div>
+        <div class="nav-item" onclick="changeLevel('N1', this)">N1 高級</div>
+        
+        <div class="api-area">
+            <label style="font-weight:bold;">🔑 API Key</label>
+            <input type="password" id="api-key" class="api-input" placeholder="sk-..." onchange="saveKey()">
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="top-bar">
+            <div style="display:flex; align-items:center;">
+                <button class="menu-btn" onclick="toggleSidebar()">☰</button>
+                <h3 id="current-title" style="margin:0; font-size:1.1rem; margin-left:5px;">N2 題庫</h3>
+            </div>
+            <div class="category-tabs">
+                <button class="active" onclick="changeType('文法', this)">文法</button>
+                <button onclick="changeType('文字・語彙', this)">單字</button>
+                <button onclick="changeType('読解', this)">讀解</button>
+                <button class="mistake-mode" onclick="changeType('mistake', this)">🔥 錯題</button>
+                <button class="stats-mode" onclick="changeType('stats', this)">📊 分析</button>
+            </div>
+        </div>
+
+        <div class="drill-list-container">
+            <!-- 1. 練習列表 -->
+            <div id="drill-list" class="drill-grid"></div>
+            <!-- 2. 錯題列表 -->
+            <div id="mistake-list" class="mistake-container"></div>
+            <!-- 3. 圖表分析 -->
+            <div id="stats-view" class="chart-container">
+                <div class="chart-card">
+                    <h3 style="margin-top:0;">📈 答題正確率趨勢</h3>
+                    <canvas id="accuracyChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h3 style="margin-top:0;">🏆 學習數據概覽</h3>
+                    <p>總練習題數：<b id="stat-total">0</b> 題</p>
+                    <p>平均正確率：<b id="stat-avg">0%</b></p>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading-screen">
+            <div class="spinner"></div>
+            <p style="margin-top:15px; color:#555; font-size:0.9rem;">AI 老師出題中...</p>
+        </div>
+
+        <div id="quiz-view" class="quiz-overlay">
+            <div class="quiz-header">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <h3 id="quiz-title" style="margin:0; font-size:1rem;">模擬試題</h3>
+                    <button id="refresh-btn" style="font-size:0.8rem; padding:4px 8px; background:#f0ad4e; color:white; border:none; border-radius:4px; cursor:pointer;">🔄 換新題</button>
+                </div>
+                <button onclick="closeQuiz()" style="font-size:1.2rem; background:none; border:none; color:#555;">✕</button>
+            </div>
+            <div id="quiz-body" class="quiz-body"></div>
+        </div>
+    </main>
+</div>
+
+<script>
+    // --- 變數與初始化 ---
+    let currentLevel = 'N2';
+    let currentType = '文法';
+    let drillCache = {};  // 題目與作答狀態快取 (會存入 LocalStorage)
+    let mistakeBook = []; // 錯題本
+    let scoreHistory = []; // 成績紀錄 (用於圖表)
+    let myChart = null; // Chart.js 實例
+
+    window.onload = function() {
+        const key = localStorage.getItem('jlpt_api_key');
+        if(key) document.getElementById('api-key').value = key;
+        
+        loadData();
+        renderDrillList();
+    }
+
+    function loadData() {
+        // 讀取錯題
+        const savedMistakes = localStorage.getItem('jlpt_mistakes');
+        if(savedMistakes) mistakeBook = JSON.parse(savedMistakes);
+        
+        // 讀取題目快取 (含作答進度)
+        const savedCache = localStorage.getItem('jlpt_drill_cache');
+        if(savedCache) drillCache = JSON.parse(savedCache);
+
+        // 讀取成績
+        const savedScores = localStorage.getItem('jlpt_scores');
+        if(savedScores) scoreHistory = JSON.parse(savedScores);
+    }
+
+    function saveData() {
+        localStorage.setItem('jlpt_mistakes', JSON.stringify(mistakeBook));
+        localStorage.setItem('jlpt_drill_cache', JSON.stringify(drillCache));
+        localStorage.setItem('jlpt_scores', JSON.stringify(scoreHistory));
+    }
+
+    // --- 導航控制 ---
+    function toggleSidebar() {
+        document.getElementById('sidebar').classList.toggle('open');
+        document.querySelector('.overlay-backdrop').classList.toggle('open');
+    }
+    function saveKey() { localStorage.setItem('jlpt_api_key', document.getElementById('api-key').value.trim()); }
+
+    function changeLevel(level, btn) {
+        currentLevel = level;
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        btn.classList.add('active');
+        updateView();
+        if(window.innerWidth <= 768) toggleSidebar();
+    }
+
+    function changeType(type, btn) {
+        currentType = type;
+        document.querySelectorAll('.category-tabs button').forEach(el => el.classList.remove('active'));
+        btn.classList.add('active');
+        updateView();
+    }
+
+    function updateView() {
+        const views = ['drill-list', 'mistake-list', 'stats-view'];
+        views.forEach(id => document.getElementById(id).style.display = 'none');
+        
+        document.getElementById('current-title').innerText = `${currentLevel} ${currentType === 'mistake' ? '錯題本' : currentType === 'stats' ? '分析' : '題庫'}`;
+
+        if (currentType === 'mistake') {
+            document.getElementById('mistake-list').style.display = 'block';
+            renderMistakeView();
+        } else if (currentType === 'stats') {
+            document.getElementById('stats-view').style.display = 'block';
+            renderStats();
+        } else {
+            document.getElementById('drill-list').style.display = 'grid';
+            renderDrillList();
+        }
+    }
+
+    // --- 1. 題庫列表渲染 (含進度條) ---
+    function renderDrillList() {
+        const container = document.getElementById('drill-list');
+        container.innerHTML = '';
+        
+        for (let i = 1; i <= 20; i++) {
+            const cacheKey = `${currentLevel}-${currentType}-${i}`;
+            const cachedData = drillCache[cacheKey]; // { questions: [], answeredCount: 0 }
+            
+            const card = document.createElement('div');
+            card.className = 'drill-card';
+            
+            // 計算進度
+            let progress = 0;
+            let statusText = "未開始";
+            let answered = 0;
+            
+            if (cachedData && cachedData.questions) {
+                // 計算已回答的題數
+                answered = cachedData.questions.filter(q => q.userAnswer !== undefined).length;
+                progress = (answered / 10) * 100;
+                statusText = progress === 100 ? "已完成 ✅" : `進行中 ${answered}/10`;
+            }
+
+            card.innerHTML = `
+                <div><h3>第 ${i} 回</h3><p style="margin:2px 0 0; font-size:0.8rem; color:#888;">${currentType}</p></div>
+                <div>
+                    <div class="status-text"><span>${statusText}</span></div>
+                    <div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${progress}%"></div></div>
+                </div>
+            `;
+            card.onclick = () => openQuiz(i);
+            container.appendChild(card);
+        }
+    }
+
+    // --- 2. 錯題區 ---
+    function renderMistakeView() {
+        const container = document.getElementById('mistake-list');
+        container.innerHTML = '';
+        const filtered = mistakeBook.filter(m => m.level === currentLevel);
+
+        if (filtered.length === 0) {
+            container.innerHTML = `<div style="text-align:center; padding:50px; color:#999;"><h3>🎉 完美！</h3><p>目前 ${currentLevel} 沒有錯題。</p></div>`;
+            return;
+        }
+
+        filtered.forEach((item) => {
+            const box = document.createElement('div');
+            box.className = 'mistake-card';
+            let html = `
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:0.8rem; color:#888;">
+                    <span>${item.type}</span> <button onclick="removeMistake('${item.id}')" style="border:1px solid #ddd; background:#fff; border-radius:4px;">🗑️ 移除</button>
+                </div>
+                <div style="font-weight:bold; margin-bottom:10px;">${item.q.replace(/\n/g, '<br>')}</div>
+            `;
+            item.opts.forEach((opt, idx) => {
+                html += `<button class="opt-btn ${idx === item.ans ? 'correct' : ''}" style="cursor:default;">${opt}</button>`;
+            });
+            html += `<div class="explanation" style="display:block;">${item.exp}</div>`;
+            box.innerHTML = html;
+            container.appendChild(box);
+        });
+    }
+
+    // --- 3. 圖表分析 (Stats) ---
+    function renderStats() {
+        // 篩選當前 Level 的數據
+        const data = scoreHistory.filter(s => s.level === currentLevel);
+        const ctx = document.getElementById('accuracyChart').getContext('2d');
+        
+        // 計算總數據
+        const totalAttempts = data.length * 10; // 假設每回10題
+        let totalCorrect = 0;
+        
+        // 準備圖表數據
+        const labels = [];
+        const accuracyData = [];
+
+        data.forEach((record, index) => {
+            labels.push(`第${index + 1}次`);
+            accuracyData.push(Math.round((record.score / record.total) * 100));
+            totalCorrect += record.score;
+        });
+
+        // 更新文字統計
+        document.getElementById('stat-total').innerText = totalAttempts;
+        document.getElementById('stat-avg').innerText = data.length > 0 ? Math.round((totalCorrect / totalAttempts) * 100) + '%' : '0%';
+
+        // 繪製圖表
+        if (myChart) myChart.destroy();
+        
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: `${currentLevel} 正確率 (%)`,
+                    data: accuracyData,
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true, max: 100 }
+                }
+            }
+        });
+    }
+
+    // --- 測驗邏輯 (核心持久化) ---
+    function openQuiz(roundNumber) {
+        const cacheKey = `${currentLevel}-${currentType}-${roundNumber}`;
+        if (drillCache[cacheKey]) {
+            renderQuizQuestions(drillCache[cacheKey].questions, roundNumber);
+            document.getElementById('quiz-view').classList.add('active');
+        } else {
+            fetchNewQuestions(roundNumber);
+        }
+    }
+
+    async function fetchNewQuestions(roundNumber) {
+        const apiKey = document.getElementById('api-key').value;
+        if(!apiKey) { alert('請輸入 API Key'); return; }
+        document.getElementById('loading').style.display = 'flex';
+        
+        const prompt = `Generate 10 unique JLPT ${currentLevel} multiple-choice questions for '${currentType}'. Set #${roundNumber}. JSON Only. Format: [{"q":"...","opts":["..."],"ans":0,"exp":"Traditional Chinese explanation"}]`;
+
+        try {
+            const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                body: JSON.stringify({ model: "gpt-4o-mini", messages: [{role: "user", content: prompt}], temperature: 0.8 })
+            });
+            const data = await res.json();
+            if(data.error) throw new Error(data.error.message);
+            const content = data.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+            const questions = JSON.parse(content);
+            
+            // 初始化快取結構 (包含 userAnswer: undefined)
+            const cacheKey = `${currentLevel}-${currentType}-${roundNumber}`;
+            drillCache[cacheKey] = {
+                questions: questions, // 每個 question 物件後續會被加入 userAnswer 屬性
+                timestamp: Date.now()
+            };
+            saveData(); // 立即存檔
+            
+            renderDrillList();
+            renderQuizQuestions(questions, roundNumber);
+            document.getElementById('quiz-view').classList.add('active');
+        } catch (e) { alert('錯誤: ' + e.message); } 
+        finally { document.getElementById('loading').style.display = 'none'; }
+    }
+
+    function renderQuizQuestions(questions, roundNumber) {
+        document.getElementById('quiz-title').innerText = `第 ${roundNumber} 回 (${currentType})`;
+        document.getElementById('refresh-btn').onclick = () => forceRefresh(roundNumber);
+        
+        const container = document.getElementById('quiz-body');
+        container.innerHTML = '';
+
+        questions.forEach((q, idx) => {
+            const box = document.createElement('div');
+            box.className = 'q-box';
+            
+            let html = `<div class="q-text"><span style="color:var(--primary)">Q${idx+1}.</span> ${q.q.replace(/\n/g, '<br>')}</div>`;
+            
+            // 如果這題已經做過 (q.userAnswer 存在)，直接顯示結果，並鎖定按鈕
+            const isAnswered = q.userAnswer !== undefined;
+            
+            q.opts.forEach((opt, optIdx) => {
+                let btnClass = 'opt-btn';
+                if (isAnswered) {
+                    if (optIdx === q.ans) btnClass += ' correct';
+                    else if (optIdx === q.userAnswer) btnClass += ' wrong';
+                    else btnClass += ' dim'; // 其他選項變淡
+                }
+                
+                // 注意：即使已作答，也要渲染出來，但設為 pointer-events: none (CSS控制)
+                html += `<button class="${btnClass}" onclick='checkQuizAnswer(this, ${optIdx}, ${idx}, ${roundNumber}, "exp-${idx}")'>${opt}</button>`;
+            });
+            
+            // 如果已作答，直接顯示解析
+            html += `<div id="exp-${idx}" class="explanation" style="display:${isAnswered ? 'block' : 'none'}"><strong>解析：</strong><br>${q.exp}</div>`;
+            
+            box.innerHTML = html;
+            container.appendChild(box);
+        });
+    }
+
+    function checkQuizAnswer(btn, userIdx, questionIdx, roundNumber, expId) {
+        const cacheKey = `${currentLevel}-${currentType}-${roundNumber}`;
+        const currentQ = drillCache[cacheKey].questions[questionIdx];
+        
+        // 1. 更新 UI
+        const parent = btn.parentElement;
+        const allBtns = parent.querySelectorAll('.opt-btn');
+        allBtns.forEach(b => b.style.pointerEvents = 'none'); 
+
+        if(userIdx === currentQ.ans) {
+            btn.classList.add('correct');
+        } else {
+            btn.classList.add('wrong');
+            allBtns[currentQ.ans].classList.add('correct');
+            // 加入錯題本
+            addToMistakeBook(currentQ);
+        }
+        document.getElementById(expId).style.display = 'block';
+
+        // 2. 關鍵：保存作答狀態到 LocalStorage
+        currentQ.userAnswer = userIdx;
+        saveData(); // 存檔！這就是為什麼關掉網頁後進度還在的原因
+
+        // 3. 檢查是否完成本回，若完成則記錄成績
+        checkRoundCompletion(cacheKey);
+    }
+
+    function checkRoundCompletion(cacheKey) {
+        const data = drillCache[cacheKey];
+        const allAnswered = data.questions.every(q => q.userAnswer !== undefined);
+        
+        // 如果全部答完，且這回還沒被記錄過成績 (避免重複計分)
+        if (allAnswered && !data.scoreRecorded) {
+            const correctCount = data.questions.filter(q => q.userAnswer === q.ans).length;
+            
+            // 新增成績紀錄
+            scoreHistory.push({
+                date: new Date().toLocaleDateString(),
+                level: currentLevel,
+                type: currentType,
+                score: correctCount,
+                total: 10
+            });
+            
+            data.scoreRecorded = true; // 標記已結算
+            saveData();
+            renderDrillList(); // 更新列表上的進度條為「已完成」
+        }
+    }
+
+    function forceRefresh(roundNumber) {
+        if(confirm('確定要重新出題嗎？舊的作答紀錄將被清除。')) {
+            const cacheKey = `${currentLevel}-${currentType}-${roundNumber}`;
+            delete drillCache[cacheKey];
+            saveData();
+            fetchNewQuestions(roundNumber);
+        }
+    }
+
+    function addToMistakeBook(q) {
+        const isExist = mistakeBook.some(m => m.q === q.q);
+        if(!isExist) {
+            mistakeBook.push({ id: Date.now().toString(), level: currentLevel, type: currentType, ...q });
+            saveData();
+        }
+    }
+
+    function removeMistake(id) {
+        mistakeBook = mistakeBook.filter(m => m.id !== id);
+        saveData();
+        renderMistakeView();
+    }
+
+    function closeQuiz() { 
+        document.getElementById('quiz-view').classList.remove('active'); 
+        renderDrillList(); // 關閉時刷新列表進度條
+    }
+</script>
+
+</body>
+</html>
